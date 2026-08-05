@@ -13,6 +13,7 @@ An unofficial creative-technology experiment that turns a phone into a physical 
 
 - The webpage itself is the tracking target—there are no large fiducial markers.
 - The phone's physical position becomes a normalized brush coordinate on the desktop.
+- Phone coordinates travel over a direct encrypted WebRTC data channel, avoiding a database round trip while painting.
 - The reveal is built from irregular, rotated spray stamps rather than a soft circular eraser.
 - Cross-device cursor updates are reduced to the latest position and interpolated at display rate for smoother motion.
 - The final 20% resolves through procedural graffiti bursts instead of a conventional fade.
@@ -24,15 +25,15 @@ An unofficial creative-technology experiment that turns a phone into a physical 
 ```mermaid
 sequenceDiagram
   participant D as Desktop
-  participant R as Shared Redis session
+  participant S as PeerJS signaling
   participant P as Phone
 
-  D->>R: Create a 30-minute paint session
-  D->>D: Render a QR for /phone?session=token
-  P->>R: Join session after QR scan
+  D->>S: Register an ephemeral 128-bit peer ID
+  D->>D: Render a capability URL in the QR sticker
+  P->>S: Find the desktop after QR scan
+  S-->>D: Negotiate a WebRTC data channel
   P->>P: Match camera features to the page artwork
-  P->>R: Send latest normalized x/y position
-  D->>R: Poll the latest cursor state
+  P-->>D: Stream latest normalized x/y directly
   D->>D: Interpolate motion and erase spray mask
   D->>D: Complete at 80% and open 3D customizer
 ```
@@ -49,7 +50,7 @@ The desktop keeps the starting artwork on a high-resolution canvas above the hid
 
 ### Smooth cross-device motion
 
-The phone never queues a backlog of vision results. It sends only the newest available position, while the desktop polls a short-lived shared session and interpolates toward the latest target on every animation frame. Local development uses an in-memory store; production uses Upstash Redis so the phone and desktop can safely reach different Vercel instances.
+The phone never queues a backlog of vision results. It sends only the newest available position over a WebRTC data channel, and the desktop interpolates toward that target on every animation frame. PeerJS Cloud brokers the initial connection; once connected, paint packets travel directly between the browsers. The older short-lived Redis session route remains as a compatibility fallback, but the primary experience does not depend on Upstash.
 
 ### Completion and 3D scene
 
@@ -72,25 +73,18 @@ Open [http://localhost:3000](http://localhost:3000). A phone camera requires a s
 PHONE_PAINT_PUBLIC_ORIGIN=https://your-secure-origin.example npm run dev
 ```
 
-Without Redis credentials, local development automatically uses an in-memory session store. Copy `.env.example` if you want to test the shared production path locally.
+No database is required for the primary WebRTC path. Without Redis credentials, the optional compatibility route automatically uses an in-memory session store.
 
 ## Deploy to Vercel
 
 1. Import this GitHub repository into Vercel as a Next.js project.
-2. Add the **Upstash for Redis** Marketplace integration to the project.
-3. Open the database in Upstash, select its HTTPS endpoint, and save that
-   endpoint and token in Vercel as `UPSTASH_REDIS_REST_URL` and
-   `UPSTASH_REDIS_REST_TOKEN`. The integration-provided `KV_REST_API_*`
-   variables remain supported as a fallback.
-4. Deploy. The QR API derives its public phone URL from the incoming Vercel request, so no production origin override is required.
+2. Deploy. The browser derives the phone URL from the live origin, so the QR automatically targets the Vercel deployment.
+3. Optional: add Upstash Redis credentials only if you want the legacy server-session fallback (`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`; `KV_REST_API_*` aliases are also supported).
 
 Every push to `main` is deployed automatically through the connected Vercel project.
 The project is configured with Vercel’s Next.js framework preset and deployed in `iad1`.
 
-If session requests fail with an Upstash authentication error after connecting the
-Marketplace database, use the native HTTPS endpoint and token variables above.
-This avoids a stale or invalid Marketplace credential mapping without deleting the
-database.
+The live paint path is independent of the optional Redis integration, so a Marketplace credential issue cannot prevent QR pairing or camera tracking.
 
 ## Verification
 
@@ -106,7 +100,7 @@ The source-contract suite protects the 80% completion threshold, phone-only pain
 
 ```text
 app/
-  api/                 Cross-device session endpoints
+  api/                 Optional compatibility session endpoint
   components/          Navigation, boot sequence, and Three.js customizer
   lib/                 Artwork tracking, spray brush, and shared session store
   DesktopExperience    Reveal canvas and completion choreography

@@ -4,11 +4,11 @@ This document explains the main technical decisions behind the Sunday Memo phone
 
 ## 1. Pairing the displays
 
-The desktop creates an ephemeral 128-bit session token through `POST /api/sessions`. The response includes a phone URL, and the desktop converts it into the custom QR sticker using the `qrcode` package.
+The desktop creates an ephemeral 128-bit capability token in the browser, registers a matching PeerJS ID, and converts the resulting phone URL into the custom QR sticker using the `qrcode` package. The phone uses that unguessable ID and token to negotiate a WebRTC data channel back to the desktop.
 
-In production, the request origin is already the Vercel deployment domain, so the generated QR naturally targets the live `/phone` route. `PHONE_PAINT_PUBLIC_ORIGIN` exists only as an explicit HTTPS override for local tunnel testing.
+PeerJS Cloud handles signaling only. After negotiation, cursor packets travel directly between the two browsers over WebRTC's encrypted data channel. This removes the server/database round trip from the hot path and makes the spray response substantially closer to camera-frame time.
 
-Sessions expire after 30 minutes. Vercel uses Upstash Redis hashes so the desktop and phone share state even when serverless requests land on different instances. The store falls back to a process-local `Map` when Redis credentials are absent, keeping local setup simple.
+The QR URL is generated from `window.location.origin`, so a Vercel visit points the phone to the public deployment and a local visit points it to the local server. A short-lived Redis-backed route remains in the repository as a compatibility fallback when a browser cannot initialize PeerJS, but Redis is not required for the primary interaction.
 
 ## 2. Using the artwork as the marker
 
@@ -21,15 +21,15 @@ The phone tracker:
 3. Matches descriptors with Hamming distance.
 4. Rejects weak matches and uses RANSAC to find a homography.
 5. Projects the camera center through the inverse relationship into normalized artwork space.
-6. Sends only the newest valid coordinate to the server.
+6. Sends only the newest valid coordinate through the open data channel.
 
 The two-reference approach lets tracking continue as the original page disappears and the hidden artwork becomes dominant.
 
 ## 3. Keeping the paint responsive
 
-Computer vision and network transport operate at different speeds. Queuing every camera result produces stale motion, so the phone keeps one pending coordinate and replaces it whenever a newer frame finishes. A new request starts only after the current request resolves.
+Computer vision and transport operate at different speeds. Queuing every camera result produces stale motion, so the phone keeps one pending coordinate and replaces it whenever a newer frame finishes. WebRTC packets are intentionally unreliable: a fresh cursor is more valuable than retransmitting an old one.
 
-The desktop polls the compact session snapshot, then eases its visual brush toward the latest target at display rate. Large jumps receive a stronger blend; nearby points use gentler interpolation. This makes modest network jitter feel continuous without adding a long smoothing delay.
+The desktop receives packets as events, then eases its visual brush toward the latest target at display rate. Large jumps receive a stronger blend; nearby points use gentler interpolation. This makes modest network jitter feel continuous without adding a long smoothing delay.
 
 ## 4. Building the spray mask
 
@@ -77,16 +77,15 @@ The canvas is dynamically imported only after the paint reveal completes, keepin
 - Compressed GLB assets instead of the original large exports
 - Capped renderer and paint-canvas pixel ratios
 - Cached spray textures
-- Latest-position-only phone transport
+- Direct latest-position-only WebRTC transport
 - Display-rate desktop interpolation
 - Dynamically loaded Three.js customizer
-- Short-lived server state with explicit no-store response headers
+- Optional short-lived Redis compatibility route with explicit no-store response headers
 
 ## 9. Known constraints
 
 - Markerless tracking depends on visible image detail, camera focus, screen glare, and ambient light.
-- The phone and laptop both need internet access for the deployed experience.
-- Redis command volume grows while a session is actively painting; the demo is designed for short portfolio interactions, not high-concurrency production traffic.
+- The phone and laptop both need internet access for PeerJS signaling. Especially restrictive or symmetric-NAT networks can prevent a direct WebRTC connection when no TURN relay is configured.
 - iOS camera permission requires the secure deployed URL and an explicit user gesture when the browser requires one.
 
 ## Disclaimer

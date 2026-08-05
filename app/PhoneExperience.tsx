@@ -6,10 +6,14 @@ import { readSession, updateSession } from "./lib/session-client";
 
 type SessionState = "joining" | "ready" | "expired" | "invalid";
 type VisionState = "idle" | "camera" | "loading" | "searching" | "found" | "error";
+type Transport = "peer" | "session";
+type PeerClient = import("peerjs").default;
+type PeerConnection = import("peerjs").DataConnection;
 const FRAME_INTERVAL = 16;
 
 export default function PhoneExperience() {
   const [token, setToken] = useState("");
+  const [transport, setTransport] = useState<Transport>("peer");
   const [sessionState, setSessionState] = useState<SessionState>("joining");
   const [visionState, setVisionState] = useState<VisionState>("idle");
   const [completed, setCompleted] = useState(false);
@@ -17,21 +21,81 @@ export default function PhoneExperience() {
   const [retryKey, setRetryKey] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const peerRef = useRef<PeerClient | null>(null);
+  const peerConnectionRef = useRef<PeerConnection | null>(null);
+  const pairingRef = useRef<{ peer: string; token: string; legacy: string } | null>(null);
 
   useEffect(() => {
-    const queryToken = new URLSearchParams(window.location.search).get("session") ?? "";
-    window.history.replaceState({}, "", "/phone");
-    queueMicrotask(() => {
-      if (!/^[a-f0-9]{32}$/.test(queryToken)) return setSessionState("invalid");
-      setToken(queryToken);
-      void updateSession(queryToken, { type: "join" })
-        .then(() => setSessionState("ready"))
-        .catch(() => setSessionState("expired"));
-    });
+    if (!pairingRef.current) {
+      const params = new URLSearchParams(window.location.search);
+      pairingRef.current = {
+        peer: params.get("peer") ?? "",
+        token: params.get("token") ?? "",
+        legacy: params.get("session") ?? "",
+      };
+      window.history.replaceState({}, "", "/phone");
+    }
+    const { peer: queryPeer, token: queryToken, legacy: legacyToken } = pairingRef.current;
+    if (/^sunday-paint-[a-f0-9]{32}$/.test(queryPeer) && /^[a-f0-9]{32}$/.test(queryToken)) {
+      let active = true;
+      let connection: PeerConnection | null = null;
+      let peer: PeerClient | null = null;
+      queueMicrotask(() => { if (active) setToken(queryToken); });
+      const timeout = window.setTimeout(() => { if (active) setSessionState("expired"); }, 15_000);
+      void import("peerjs").then(({ default: Peer }) => {
+        if (!active) return;
+        peer = new Peer({ debug: 0 });
+        peerRef.current = peer;
+        peer.on("open", () => {
+          if (!active || !peer) return;
+          connection = peer.connect(queryPeer, {
+            label: "sunday-phone-paint",
+            metadata: { token: queryToken },
+            serialization: "json",
+            reliable: false,
+          });
+          peerConnectionRef.current = connection;
+          connection.on("open", () => {
+            if (!active) return;
+            window.clearTimeout(timeout);
+            setSessionState("ready");
+          });
+          connection.on("data", (value) => {
+            const packet = value as { type?: unknown };
+            if (active && packet.type === "complete") setCompleted(true);
+          });
+          connection.on("close", () => {
+            if (active) setSessionState("expired");
+          });
+          connection.on("error", () => { if (active) setSessionState("expired"); });
+        });
+        peer.on("error", () => { if (active) setSessionState("expired"); });
+      }).catch(() => { if (active) setSessionState("expired"); });
+      return () => {
+        active = false;
+        window.clearTimeout(timeout);
+        connection?.close();
+        peer?.destroy();
+        peerConnectionRef.current = null;
+        peerRef.current = null;
+      };
+    }
+
+    if (/^[a-f0-9]{32}$/.test(legacyToken)) {
+      queueMicrotask(() => {
+        setTransport("session");
+        setToken(legacyToken);
+        void updateSession(legacyToken, { type: "join" })
+          .then(() => setSessionState("ready"))
+          .catch(() => setSessionState("expired"));
+      });
+      return;
+    }
+    queueMicrotask(() => setSessionState("invalid"));
   }, []);
 
   useEffect(() => {
-    if (!token || sessionState !== "ready" || completed) return;
+    if (transport !== "session" || !token || sessionState !== "ready" || completed) return;
     let active = true;
     const timer = window.setInterval(() => {
       void readSession(token).then(({ session }) => {
@@ -39,7 +103,7 @@ export default function PhoneExperience() {
       }).catch(() => undefined);
     }, 700);
     return () => { active = false; window.clearInterval(timer); };
-  }, [completed, sessionState, token]);
+  }, [completed, sessionState, token, transport]);
 
   useEffect(() => {
     if (!token || sessionState !== "ready" || completed) return;
@@ -63,10 +127,18 @@ export default function PhoneExperience() {
       pending = null;
       requestInFlight = true;
       const payload = update.type === "cursor" ? { ...update, seq: sequence++ } : update;
-      void updateSession(token, payload).catch(() => undefined).finally(() => {
-        requestInFlight = false;
-        flush();
-      });
+      if (transport === "peer") {
+        try { if (peerConnectionRef.current?.open) peerConnectionRef.current.send(payload); }
+        finally {
+          requestInFlight = false;
+          if (pending) timer = window.setTimeout(flush, FRAME_INTERVAL);
+        }
+      } else {
+        void updateSession(token, payload).catch(() => undefined).finally(() => {
+          requestInFlight = false;
+          flush();
+        });
+      }
     };
     const queue = (update: NonNullable<typeof pending>) => { pending = update; flush(); };
     const stop = () => {
@@ -92,7 +164,8 @@ export default function PhoneExperience() {
         tracker = await createArtworkTracker();
         if (!active) return stop();
         setVisionState("searching");
-        await updateSession(token, { type: "tracking", tracking: "lost" });
+        if (transport === "peer") peerConnectionRef.current?.send({ type: "tracking", tracking: "lost" });
+        else await updateSession(token, { type: "tracking", tracking: "lost" });
 
         const processFrame = () => {
           if (!active || !tracker || !videoRef.current || !canvasRef.current) return;
@@ -128,12 +201,14 @@ export default function PhoneExperience() {
         setVisionState("error");
         const denied = error instanceof DOMException && error.name === "NotAllowedError";
         setCameraError(denied ? "Camera access was blocked. Allow it, then tap retry." : "Camera tracking could not start. Tap retry.");
-        void updateSession(token, { type: "tracking", tracking: "lost" }).catch(() => undefined);
+        if (transport === "peer") {
+          try { peerConnectionRef.current?.send({ type: "tracking", tracking: "lost" }); } catch { /* connection is already closing */ }
+        } else void updateSession(token, { type: "tracking", tracking: "lost" }).catch(() => undefined);
       }
     };
     void run();
     return stop;
-  }, [completed, retryKey, sessionState, token]);
+  }, [completed, retryKey, sessionState, token, transport]);
 
   if (sessionState === "invalid" || sessionState === "expired") {
     return <main className="phone-message-page"><span className="phone-kicker">PHONE PAINT</span><h1>{sessionState === "invalid" ? "Scan the code on your desktop." : "That session expired."}</h1><p>Return to the desktop, refresh the code, and scan again.</p></main>;

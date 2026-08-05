@@ -109,6 +109,23 @@ test("phone sends latest tracking position without blocking vision", async () =>
   assert.match(phone, /const FRAME_INTERVAL = 16/);
   assert.match(phone, /let pending:/);
   assert.match(phone, /requestInFlight/);
+  assert.match(phone, /peerConnectionRef\.current\?\.open/);
+  assert.match(phone, /peerConnectionRef\.current\.send\(payload\)/);
+});
+
+test("the primary cross-device path is a direct WebRTC data channel", async () => {
+  const [desktop, phone, packageJson] = await Promise.all([
+    read("app/DesktopExperience.tsx"),
+    read("app/PhoneExperience.tsx"),
+    read("package.json"),
+  ]);
+  assert.match(packageJson, /"peerjs"/);
+  assert.match(desktop, /sunday-paint-/);
+  assert.match(desktop, /peer\.on\("connection"/);
+  assert.match(desktop, /metadata\?\.token !== token/);
+  assert.match(phone, /peer\.connect\(queryPeer/);
+  assert.match(phone, /label: "sunday-phone-paint"/);
+  assert.match(phone, /reliable: false/);
 });
 
 test("phone uses the supplied full-screen spray artwork with one instruction", async () => {

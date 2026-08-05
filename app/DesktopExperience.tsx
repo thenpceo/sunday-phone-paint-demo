@@ -18,8 +18,19 @@ const CustomizationExperience = dynamic(
   () => import("./components/CustomizationExperience").then((module) => module.CustomizationExperience),
   { ssr: false },
 );
-type CreatedSession = { token: string; expiresAt: number; phoneUrl: string };
+type CreatedSession = {
+  transport: "peer" | "session";
+  token: string;
+  expiresAt?: number;
+  phoneUrl: string;
+};
 type PaintPoint = { x: number; y: number; at: number };
+type PeerClient = import("peerjs").default;
+type PeerConnection = import("peerjs").DataConnection;
+type PeerPacket =
+  | { type: "cursor"; seq: number; x: number; y: number; tracking: "found" }
+  | { type: "tracking"; tracking: "lost" }
+  | { type: "complete" };
 
 export default function DesktopExperience() {
   const [created, setCreated] = useState<CreatedSession | null>(null);
@@ -40,7 +51,10 @@ export default function DesktopExperience() {
   const finishFrameRef = useRef(0);
   const remoteTargetRef = useRef<PaintPoint | null>(null);
   const remoteVisualRef = useRef<PaintPoint | null>(null);
-  const sessionToken = created?.token ?? "";
+  const peerRef = useRef<PeerClient | null>(null);
+  const peerConnectionRef = useRef<PeerConnection | null>(null);
+  const createGenerationRef = useRef(0);
+  const sessionToken = created?.transport === "session" ? created.token : "";
 
   const fillCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -122,30 +136,109 @@ export default function DesktopExperience() {
   }, [fillCanvas]);
 
   const createSession = useCallback(async () => {
+    const generation = ++createGenerationRef.current;
     setCreating(true);
     setQrDataUrl("");
+    peerConnectionRef.current?.close();
+    peerConnectionRef.current = null;
+    peerRef.current?.destroy();
+    peerRef.current = null;
     resetPaint();
     try {
-      // Keep creation and phone updates on one serverless route. When a Redis
-      // binding is unavailable, this preserves the short-lived demo session in
-      // the same warm function instead of splitting it across two route maps.
-      const response = await fetch("/api/session", { method: "POST" });
-      if (!response.ok) throw new Error("SESSION_CREATE_FAILED");
-      const session = (await response.json()) as CreatedSession;
+      const token = randomToken();
+      const peerId = `sunday-paint-${token}`;
+      const { default: Peer } = await import("peerjs");
+      const peer = new Peer(peerId, { debug: 0 });
+      peerRef.current = peer;
+
+      peer.on("connection", (connection) => {
+        const metadata = connection.metadata as { token?: unknown } | undefined;
+        if (connection.label !== "sunday-phone-paint" || metadata?.token !== token) {
+          connection.close();
+          return;
+        }
+        peerConnectionRef.current?.close();
+        peerConnectionRef.current = connection;
+        connection.on("data", (value) => {
+          const packet = value as Partial<PeerPacket>;
+          if (
+            packet.type === "cursor" &&
+            Number.isSafeInteger(packet.seq) &&
+            typeof packet.x === "number" && packet.x >= 0 && packet.x <= 1 &&
+            typeof packet.y === "number" && packet.y >= 0 && packet.y <= 1
+          ) {
+            if ((packet.seq as number) <= lastSeqRef.current) return;
+            lastSeqRef.current = packet.seq as number;
+            const mapped = referenceToStage(packet.x, packet.y, stageRef.current);
+            if (mapped) remoteTargetRef.current = { ...mapped, at: Date.now() };
+          } else if (packet.type === "tracking" && packet.tracking === "lost") {
+            remoteTargetRef.current = null;
+            remoteVisualRef.current = null;
+            lastPointRef.current = null;
+          }
+        });
+        connection.on("close", () => {
+          if (peerConnectionRef.current === connection) peerConnectionRef.current = null;
+        });
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => reject(new Error("PEER_SIGNAL_TIMEOUT")), 12_000);
+        peer.once("open", () => { window.clearTimeout(timeout); resolve(); });
+        peer.once("error", (error) => { window.clearTimeout(timeout); reject(error); });
+      });
+      if (generation !== createGenerationRef.current) {
+        peer.destroy();
+        return;
+      }
+      const session: CreatedSession = {
+        transport: "peer",
+        token,
+        phoneUrl: `${window.location.origin}/phone?peer=${encodeURIComponent(peerId)}&token=${token}`,
+      };
       const code = await QRCode.toDataURL(session.phoneUrl, {
         width: 280, margin: 1, color: { dark: "#1a1a1a", light: "#ffffff" },
       });
       setCreated(session);
       setQrDataUrl(code);
-    } catch (sessionError) {
-      console.error(sessionError);
-    } finally { setCreating(false); }
+    } catch (peerError) {
+      if (generation !== createGenerationRef.current) return;
+      console.error("phone-paint:peer", peerError);
+      peerRef.current?.destroy();
+      peerRef.current = null;
+      try {
+        // A short-lived server session remains as a compatibility fallback for
+        // networks or browsers that cannot establish a WebRTC data channel.
+        const response = await fetch("/api/session", { method: "POST" });
+        if (!response.ok) throw new Error("SESSION_CREATE_FAILED");
+        const fallback = (await response.json()) as Omit<CreatedSession, "transport">;
+        if (generation !== createGenerationRef.current) return;
+        const session: CreatedSession = { ...fallback, transport: "session" };
+        const code = await QRCode.toDataURL(session.phoneUrl, {
+          width: 280, margin: 1, color: { dark: "#1a1a1a", light: "#ffffff" },
+        });
+        setCreated(session);
+        setQrDataUrl(code);
+      } catch (sessionError) {
+        if (generation === createGenerationRef.current) console.error("phone-paint:session", sessionError);
+      }
+    } finally {
+      if (generation === createGenerationRef.current) setCreating(false);
+    }
   }, [resetPaint]);
 
   useEffect(() => {
     if (createStartedRef.current) return;
     createStartedRef.current = true;
     void createSession();
+    return () => {
+      createGenerationRef.current += 1;
+      createStartedRef.current = false;
+      peerConnectionRef.current?.close();
+      peerConnectionRef.current = null;
+      peerRef.current?.destroy();
+      peerRef.current = null;
+    };
   }, [createSession]);
 
   const completeReveal = useCallback(() => {
@@ -156,6 +249,7 @@ export default function DesktopExperience() {
     const context = canvas?.getContext("2d");
     if (!canvas || !stage || !context) {
       setCompleted(true);
+      if (peerConnectionRef.current?.open) peerConnectionRef.current.send({ type: "complete" });
       if (sessionToken) void updateSession(sessionToken, { type: "complete" }).catch(() => undefined);
       return;
     }
@@ -184,6 +278,7 @@ export default function DesktopExperience() {
     const finalize = () => {
       context.clearRect(0, 0, rect.width, rect.height);
       setCompleted(true);
+      if (peerConnectionRef.current?.open) peerConnectionRef.current.send({ type: "complete" });
       if (sessionToken) void updateSession(sessionToken, { type: "complete" }).catch(() => undefined);
     };
     const finishFrame = () => {
@@ -248,7 +343,7 @@ export default function DesktopExperience() {
   }, [completed, paintPoint]);
 
   useEffect(() => {
-    if (!created?.token || completed) return;
+    if (created?.transport !== "session" || !created.token || completed) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     let failures = 0;
@@ -273,7 +368,7 @@ export default function DesktopExperience() {
     };
     void poll();
     return () => { active = false; clearTimeout(timer); };
-  }, [created?.token, completed]);
+  }, [created, completed]);
 
   return (
     <main id="top" className={`experience${completed ? " is-complete" : ""}`}>
@@ -366,4 +461,8 @@ function referenceToStage(x: number, y: number, stage: HTMLDivElement | null) {
   const stageY = (y * height + (rect.height - height) / 2) / rect.height;
   if (stageX < -0.04 || stageX > 1.04 || stageY < -0.04 || stageY > 1.04) return null;
   return { x: Math.min(1, Math.max(0, stageX)), y: Math.min(1, Math.max(0, stageY)) };
+}
+
+function randomToken() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, "0")).join("");
 }
