@@ -25,7 +25,7 @@ export default function PhoneExperience() {
   const peerRef = useRef<PeerClient | null>(null);
   const peerConnectionRef = useRef<PeerConnection | null>(null);
   const pairingRef = useRef<{ peer: string; token: string; legacy: string } | null>(null);
-  const { playLoadRattle, startSprayLoop, stopSprayLoop, stopAllAudio } = usePhonePaintAudio();
+  const { startSprayLoop, stopSprayLoop, stopAllAudio } = usePhonePaintAudio();
 
   useEffect(() => {
     if (!pairingRef.current) {
@@ -95,10 +95,6 @@ export default function PhoneExperience() {
     }
     queueMicrotask(() => setSessionState("invalid"));
   }, []);
-
-  useEffect(() => {
-    if (sessionState === "ready" && !completed) playLoadRattle();
-  }, [completed, playLoadRattle, sessionState]);
 
   useEffect(() => {
     if (completed) stopAllAudio();
@@ -171,7 +167,6 @@ export default function PhoneExperience() {
         if (!active || !videoRef.current) return stop();
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
-        playLoadRattle();
         setVisionState("loading");
         tracker = await createArtworkTracker();
         if (!active) return stop();
@@ -184,7 +179,6 @@ export default function PhoneExperience() {
           try {
             const result = tracker.locate(videoRef.current, canvasRef.current);
             if (result) {
-              startSprayLoop();
               const distance = smoothed ? Math.hypot(result.x - smoothed.x, result.y - smoothed.y) : 1;
               const blend = distance > 0.32 ? 1 : 0.62;
               smoothed = smoothed
@@ -194,6 +188,7 @@ export default function PhoneExperience() {
               reportedLost = false;
               setVisionState("found");
               queue({ type: "cursor", x: smoothed.x, y: smoothed.y, tracking: "found" });
+              startSprayLoop();
             } else if (performance.now() - lastFoundAt > 550) {
               smoothed = null;
               setVisionState("searching");
@@ -223,7 +218,7 @@ export default function PhoneExperience() {
     };
     void run();
     return stop;
-  }, [completed, playLoadRattle, retryKey, sessionState, startSprayLoop, stopSprayLoop, token, transport]);
+  }, [completed, retryKey, sessionState, startSprayLoop, stopSprayLoop, token, transport]);
 
   if (sessionState === "invalid" || sessionState === "expired") {
     return <main className="phone-message-page"><span className="phone-kicker">PHONE PAINT</span><h1>{sessionState === "invalid" ? "Scan the code on your desktop." : "That session expired."}</h1><p>Return to the desktop, refresh the code, and scan again.</p></main>;

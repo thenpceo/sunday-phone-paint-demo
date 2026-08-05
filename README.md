@@ -55,7 +55,7 @@ The phone never queues a backlog of vision results. It sends only the newest ava
 
 ### Phone-side sound
 
-The supplied recording is split into a short AAC rattle and a sample-continuous PCM spray loop. The rattle is requested when the phone pairs; the loop starts on the first valid artwork track and stops on completion, camera failure, retry, or teardown. Audible autoplay is attempted immediately and retried on the first page gesture when a mobile browser enforces its sound policy.
+The supplied recording is split into a short AAC rattle and a sample-continuous PCM spray loop. Both are preloaded as independent elements so camera capture is never reloaded or interrupted by an audio source change. The rattle starts after the first valid artwork track, followed by the loop; both stop on completion, camera failure, retry, or teardown. Playback is retried on the first page gesture when a mobile browser enforces its sound policy.
 
 ### Completion and 3D scene
 

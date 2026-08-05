@@ -120,11 +120,12 @@ test("phone audio plays one rattle before a seamless spray loop", async () => {
   ]);
   assert.match(audio, /spray-can-rattle\.m4a/);
   assert.match(audio, /spray-paint-loop\.wav/);
-  assert.match(audio, /audio\.loop = true/);
+  assert.match(audio, /spray\.loop = true/);
   assert.match(audio, /document\.addEventListener\("pointerdown", unlockAudio/);
   assert.match(audio, /rattleFinishedRef\.current/);
-  assert.match(phone, /playLoadRattle\(\)/);
-  assert.match(phone, /startSprayLoop\(\)/);
+  assert.doesNotMatch(audio, /\.src = SPRAY_SOURCE/);
+  assert.doesNotMatch(audio, /\.load\(\)/);
+  assert.match(phone, /queue\(\{ type: "cursor"[^;]+;\s+startSprayLoop\(\);/);
   assert.match(phone, /if \(completed\) stopAllAudio\(\)/);
 });
 
