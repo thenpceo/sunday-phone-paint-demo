@@ -116,7 +116,7 @@ test("phone uses the supplied full-screen spray artwork with one instruction", a
   assert.match(phone, /POINT AT YOUR SCREEN TO PAINT/);
   assert.doesNotMatch(phone, /phone-brush-reticle/);
   assert.doesNotMatch(phone, /phone-header/);
-  assert.match(css, /phone-spray-reference\.webp/);
+  assert.match(css, /phone-spray-reference-v2\.jpg/);
   assert.match(css, /background: #eeeae6[^;]+center \/ cover no-repeat/);
 });
 

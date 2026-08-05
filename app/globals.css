@@ -571,7 +571,7 @@ button {
 .phone-hidden-artwork {
   position: absolute;
   inset: 0;
-  background: #eeeae6 url("/artwork/phone-spray-reference.webp") center / cover no-repeat;
+  background: #eeeae6 url("/artwork/phone-spray-reference-v2.jpg") center / cover no-repeat;
 }
 
 .phone-video,
