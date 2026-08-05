@@ -84,6 +84,11 @@ Without Redis credentials, local development automatically uses an in-memory ses
 Every push to `main` is deployed automatically through the connected Vercel project.
 The project is configured with Vercel’s Next.js framework preset and deployed in `iad1`.
 
+If session requests fail with an Upstash authentication error after connecting the
+Marketplace database, remove only the database-to-project connection, reconnect it
+for Preview and Production, and redeploy. This regenerates the integration-managed
+credentials without deleting the database.
+
 ## Verification
 
 ```bash
