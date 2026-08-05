@@ -323,10 +323,10 @@ button {
 .scan-sticker-qr {
   position: absolute;
   z-index: 1;
-  top: 30.8%;
-  left: 23.1%;
+  top: 30%;
+  left: 22.5%;
   display: grid;
-  width: 53.8%;
+  width: 55%;
   aspect-ratio: 1;
   place-items: center;
   overflow: hidden;

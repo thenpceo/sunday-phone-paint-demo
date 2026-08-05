@@ -24,7 +24,7 @@ test("desktop painting is phone-only and does not create a scroll reveal", async
   assert.doesNotMatch(desktop, /unlocked-content/);
   assert.doesNotMatch(desktop, /MAKE YOUR MEMO/);
   assert.match(desktop, /className="scan-sticker"/);
-  assert.match(desktop, /scan-me-sticker-optimized\.png/);
+  assert.match(desktop, /scan-me-sticker-v2\.png/);
   assert.match(desktop, /className="scan-sticker-qr"/);
 });
 
@@ -135,7 +135,7 @@ test("Sunday-inspired design tokens and integrated QR sticker are present", asyn
   assert.match(css, /\.persistent-nav/);
   assert.match(css, /\.scan-sticker/);
   assert.match(css, /\.scan-sticker-qr/);
-  assert.match(css, /top: 30\.8%/);
+  assert.match(css, /top: 30%/);
   assert.match(css, /overflow: hidden/);
 });
 

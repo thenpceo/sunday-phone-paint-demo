@@ -303,7 +303,7 @@ export default function DesktopExperience() {
             aria-label="Refresh the phone pairing QR code"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="scan-sticker-art" src="/artwork/scan-me-sticker-optimized.png" alt="" />
+            <img className="scan-sticker-art" src="/artwork/scan-me-sticker-v2.png" alt="" />
             <span className="scan-sticker-qr">{qrDataUrl ? (
               // This is an ephemeral client-generated data URL, not an optimizable site asset.
               // eslint-disable-next-line @next/next/no-img-element
