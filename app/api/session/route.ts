@@ -1,4 +1,5 @@
 import {
+  createPaintSession,
   joinPhone,
   markComplete,
   readPaintSession,
@@ -12,6 +13,16 @@ export const dynamic = "force-dynamic";
 const TOKEN_PATTERN = /^[a-f0-9]{32}$/;
 const TRACKING_STATES = new Set(["waiting", "found", "lost", "manual"]);
 
+function validOrigin(value: string | undefined) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 function tokenFrom(request: Request) {
   const token = request.headers.get("x-paint-session") ?? "";
   return TOKEN_PATTERN.test(token) ? token : null;
@@ -19,6 +30,13 @@ function tokenFrom(request: Request) {
 
 function json(payload: unknown, status = 200) {
   return Response.json(payload, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+export async function POST(request: Request) {
+  const session = await createPaintSession();
+  const requestOrigin = new URL(request.url).origin;
+  const origin = validOrigin(process.env.PHONE_PAINT_PUBLIC_ORIGIN) ?? requestOrigin;
+  return json({ ...session, phoneUrl: `${origin}/phone?session=${session.token}` }, 201);
 }
 
 export async function GET(request: Request) {

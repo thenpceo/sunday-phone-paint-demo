@@ -140,14 +140,14 @@ test("Sunday-inspired design tokens and integrated QR sticker are present", asyn
 });
 
 test("production sessions use shared Redis with a local fallback", async () => {
-  const [store, sessionsRoute] = await Promise.all([
+  const [store, sessionRoute] = await Promise.all([
     read("app/lib/session-store.ts"),
-    read("app/api/sessions/route.ts"),
+    read("app/api/session/route.ts"),
   ]);
   assert.match(store, /from "@upstash\/redis"/);
   assert.match(store, /process\.env\.KV_REST_API_URL/);
   assert.match(store, /__phonePaintSessions/);
   assert.match(store, /redis\.pipeline\(\)/);
   assert.match(store, /UPDATE_CURSOR/);
-  assert.match(sessionsRoute, /await createPaintSession\(\)/);
+  assert.match(sessionRoute, /await createPaintSession\(\)/);
 });

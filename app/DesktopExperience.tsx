@@ -126,7 +126,10 @@ export default function DesktopExperience() {
     setQrDataUrl("");
     resetPaint();
     try {
-      const response = await fetch("/api/sessions", { method: "POST" });
+      // Keep creation and phone updates on one serverless route. When a Redis
+      // binding is unavailable, this preserves the short-lived demo session in
+      // the same warm function instead of splitting it across two route maps.
+      const response = await fetch("/api/session", { method: "POST" });
       if (!response.ok) throw new Error("SESSION_CREATE_FAILED");
       const session = (await response.json()) as CreatedSession;
       const code = await QRCode.toDataURL(session.phoneUrl, {
