@@ -145,6 +145,8 @@ test("production sessions use shared Redis with a local fallback", async () => {
     read("app/api/session/route.ts"),
   ]);
   assert.match(store, /from "@upstash\/redis"/);
+  assert.match(store, /process\.env\.UPSTASH_REDIS_REST_URL \?\? process\.env\.KV_REST_API_URL/);
+  assert.match(store, /process\.env\.UPSTASH_REDIS_REST_TOKEN \?\? process\.env\.KV_REST_API_TOKEN/);
   assert.match(store, /process\.env\.KV_REST_API_URL/);
   assert.match(store, /__phonePaintSessions/);
   assert.match(store, /redis\.pipeline\(\)/);

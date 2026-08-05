@@ -19,8 +19,10 @@ type SessionRecord = SessionSnapshot & { token: string };
 const SESSION_TTL = 30 * 60 * 1000;
 const SESSION_TTL_SECONDS = SESSION_TTL / 1000;
 const KEY_PREFIX = "phone-paint:session:";
-const redisUrl = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
-const redisToken = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+// Prefer Upstash's native REST credentials. The Vercel Marketplace KV aliases
+// remain supported as a fallback for projects where that binding is healthy.
+const redisUrl = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
+const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
 const redis = redisUrl && redisToken ? new Redis({ url: redisUrl, token: redisToken }) : null;
 const shared = globalThis as typeof globalThis & { __phonePaintSessions?: Map<string, SessionRecord> };
 const sessions = shared.__phonePaintSessions ?? new Map<string, SessionRecord>();

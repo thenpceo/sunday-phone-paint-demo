@@ -78,16 +78,19 @@ Without Redis credentials, local development automatically uses an in-memory ses
 
 1. Import this GitHub repository into Vercel as a Next.js project.
 2. Add the **Upstash for Redis** Marketplace integration to the project.
-3. Confirm it provides `KV_REST_API_URL` and `KV_REST_API_TOKEN`.
+3. Open the database in Upstash, select its HTTPS endpoint, and save that
+   endpoint and token in Vercel as `UPSTASH_REDIS_REST_URL` and
+   `UPSTASH_REDIS_REST_TOKEN`. The integration-provided `KV_REST_API_*`
+   variables remain supported as a fallback.
 4. Deploy. The QR API derives its public phone URL from the incoming Vercel request, so no production origin override is required.
 
 Every push to `main` is deployed automatically through the connected Vercel project.
 The project is configured with Vercel’s Next.js framework preset and deployed in `iad1`.
 
 If session requests fail with an Upstash authentication error after connecting the
-Marketplace database, remove only the database-to-project connection, reconnect it
-for Preview and Production, and redeploy. This regenerates the integration-managed
-credentials without deleting the database.
+Marketplace database, use the native HTTPS endpoint and token variables above.
+This avoids a stale or invalid Marketplace credential mapping without deleting the
+database.
 
 ## Verification
 
