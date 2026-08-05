@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createArtworkTracker } from "./lib/artwork-feature-tracker";
 import { readSession, updateSession } from "./lib/session-client";
+import { usePhonePaintAudio } from "./lib/use-phone-paint-audio";
 
 type SessionState = "joining" | "ready" | "expired" | "invalid";
 type VisionState = "idle" | "camera" | "loading" | "searching" | "found" | "error";
@@ -24,6 +25,7 @@ export default function PhoneExperience() {
   const peerRef = useRef<PeerClient | null>(null);
   const peerConnectionRef = useRef<PeerConnection | null>(null);
   const pairingRef = useRef<{ peer: string; token: string; legacy: string } | null>(null);
+  const { playLoadRattle, startSprayLoop, stopSprayLoop, stopAllAudio } = usePhonePaintAudio();
 
   useEffect(() => {
     if (!pairingRef.current) {
@@ -95,6 +97,14 @@ export default function PhoneExperience() {
   }, []);
 
   useEffect(() => {
+    if (sessionState === "ready" && !completed) playLoadRattle();
+  }, [completed, playLoadRattle, sessionState]);
+
+  useEffect(() => {
+    if (completed) stopAllAudio();
+  }, [completed, stopAllAudio]);
+
+  useEffect(() => {
     if (transport !== "session" || !token || sessionState !== "ready" || completed) return;
     let active = true;
     const timer = window.setInterval(() => {
@@ -144,6 +154,7 @@ export default function PhoneExperience() {
     const stop = () => {
       active = false;
       if (timer !== null) window.clearTimeout(timer);
+      stopSprayLoop();
       tracker?.dispose();
       stream?.getTracks().forEach((item) => item.stop());
     };
@@ -160,6 +171,7 @@ export default function PhoneExperience() {
         if (!active || !videoRef.current) return stop();
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        playLoadRattle();
         setVisionState("loading");
         tracker = await createArtworkTracker();
         if (!active) return stop();
@@ -172,6 +184,7 @@ export default function PhoneExperience() {
           try {
             const result = tracker.locate(videoRef.current, canvasRef.current);
             if (result) {
+              startSprayLoop();
               const distance = smoothed ? Math.hypot(result.x - smoothed.x, result.y - smoothed.y) : 1;
               const blend = distance > 0.32 ? 1 : 0.62;
               smoothed = smoothed
@@ -190,6 +203,7 @@ export default function PhoneExperience() {
             console.error("artwork-tracking:frame", error);
             setCameraError("Artwork recognition stopped. Tap retry to restart it.");
             setVisionState("error");
+            stopSprayLoop();
             return;
           }
           if (active) timer = window.setTimeout(processFrame, FRAME_INTERVAL);
@@ -199,6 +213,7 @@ export default function PhoneExperience() {
         console.error("artwork-tracking:start", error);
         if (!active) return;
         setVisionState("error");
+        stopSprayLoop();
         const denied = error instanceof DOMException && error.name === "NotAllowedError";
         setCameraError(denied ? "Camera access was blocked. Allow it, then tap retry." : "Camera tracking could not start. Tap retry.");
         if (transport === "peer") {
@@ -208,7 +223,7 @@ export default function PhoneExperience() {
     };
     void run();
     return stop;
-  }, [completed, retryKey, sessionState, token, transport]);
+  }, [completed, playLoadRattle, retryKey, sessionState, startSprayLoop, stopSprayLoop, token, transport]);
 
   if (sessionState === "invalid" || sessionState === "expired") {
     return <main className="phone-message-page"><span className="phone-kicker">PHONE PAINT</span><h1>{sessionState === "invalid" ? "Scan the code on your desktop." : "That session expired."}</h1><p>Return to the desktop, refresh the code, and scan again.</p></main>;

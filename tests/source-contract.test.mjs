@@ -113,6 +113,21 @@ test("phone sends latest tracking position without blocking vision", async () =>
   assert.match(phone, /peerConnectionRef\.current\.send\(payload\)/);
 });
 
+test("phone audio plays one rattle before a seamless spray loop", async () => {
+  const [phone, audio] = await Promise.all([
+    read("app/PhoneExperience.tsx"),
+    read("app/lib/use-phone-paint-audio.ts"),
+  ]);
+  assert.match(audio, /spray-can-rattle\.m4a/);
+  assert.match(audio, /spray-paint-loop\.wav/);
+  assert.match(audio, /audio\.loop = true/);
+  assert.match(audio, /document\.addEventListener\("pointerdown", unlockAudio/);
+  assert.match(audio, /rattleFinishedRef\.current/);
+  assert.match(phone, /playLoadRattle\(\)/);
+  assert.match(phone, /startSprayLoop\(\)/);
+  assert.match(phone, /if \(completed\) stopAllAudio\(\)/);
+});
+
 test("the primary cross-device path is a direct WebRTC data channel", async () => {
   const [desktop, phone, packageJson] = await Promise.all([
     read("app/DesktopExperience.tsx"),

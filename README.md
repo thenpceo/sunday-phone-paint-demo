@@ -15,6 +15,7 @@ An unofficial creative-technology experiment that turns a phone into a physical 
 - The phone's physical position becomes a normalized brush coordinate on the desktop.
 - Phone coordinates travel over a direct encrypted WebRTC data channel, avoiding a database round trip while painting.
 - The reveal is built from irregular, rotated spray stamps rather than a soft circular eraser.
+- The phone plays a one-shot can rattle, then a gapless spray loop for the active paint pass.
 - Cross-device cursor updates are reduced to the latest position and interpolated at display rate for smoother motion.
 - The final 20% resolves through procedural graffiti bursts instead of a conventional fade.
 - The revealed hero becomes a vertically curved ring of optimized GLB objects with bloom, grain, and restrained front-facing motion.
@@ -51,6 +52,10 @@ The desktop keeps the starting artwork on a high-resolution canvas above the hid
 ### Smooth cross-device motion
 
 The phone never queues a backlog of vision results. It sends only the newest available position over a WebRTC data channel, and the desktop interpolates toward that target on every animation frame. PeerJS Cloud brokers the initial connection; once connected, paint packets travel directly between the browsers. The older short-lived Redis session route remains as a compatibility fallback, but the primary experience does not depend on Upstash.
+
+### Phone-side sound
+
+The supplied recording is split into a short AAC rattle and a sample-continuous PCM spray loop. The rattle is requested when the phone pairs; the loop starts on the first valid artwork track and stops on completion, camera failure, retry, or teardown. Audible autoplay is attempted immediately and retried on the first page gesture when a mobile browser enforces its sound policy.
 
 ### Completion and 3D scene
 
@@ -106,6 +111,7 @@ app/
   DesktopExperience    Reveal canvas and completion choreography
   PhoneExperience      Camera tracking and latest-position transport
 public/
+  audio/               Phone-side rattle and seamless spray-loop assets
   artwork/             Optimized reference and UI artwork
   media/               Optimized revealed hero video and poster
   models/              Draco-compressed GLB customization objects
