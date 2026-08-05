@@ -23,7 +23,8 @@ const KEY_PREFIX = "phone-paint:session:";
 // remain supported as a fallback for projects where that binding is healthy.
 const redisUrl = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
 const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
-const redis = redisUrl && redisToken ? new Redis({ url: redisUrl, token: redisToken }) : null;
+let redis = redisUrl && redisToken ? new Redis({ url: redisUrl, token: redisToken }) : null;
+let reportedRedisFallback = false;
 const shared = globalThis as typeof globalThis & { __phonePaintSessions?: Map<string, SessionRecord> };
 const sessions = shared.__phonePaintSessions ?? new Map<string, SessionRecord>();
 shared.__phonePaintSessions = sessions;
@@ -44,6 +45,13 @@ return 1
 
 function key(token: string) {
   return `${KEY_PREFIX}${token}`;
+}
+
+function disableRedis(error: unknown) {
+  redis = null;
+  if (reportedRedisFallback) return;
+  reportedRedisFallback = true;
+  console.warn("phone-paint:redis unavailable; using the process-local compatibility store", error instanceof Error ? error.message : "unknown error");
 }
 
 function numberValue(value: unknown, fallback: number) {
@@ -74,14 +82,20 @@ function recordValue(value: Record<string, unknown> | null): SessionRecord | nul
 }
 
 async function current(token: string) {
-  if (redis) {
-    const session = recordValue(await redis.hgetall<Record<string, unknown>>(key(token)));
-    if (!session) return null;
-    if (session.expiresAt <= Date.now()) {
-      await redis.del(key(token));
-      return null;
+  const client = redis;
+  if (client) {
+    try {
+      const session = recordValue(await client.hgetall<Record<string, unknown>>(key(token)));
+      if (!session) return null;
+      if (session.expiresAt <= Date.now()) {
+        await client.del(key(token));
+        return null;
+      }
+      sessions.set(token, session);
+      return session;
+    } catch (error) {
+      disableRedis(error);
     }
-    return session;
   }
   const session = sessions.get(token);
   if (!session) return null;
@@ -106,9 +120,17 @@ function snapshot(session: SessionRecord): SessionSnapshot {
 }
 
 async function updateFields(token: string, fields: Record<string, string | number | boolean>) {
-  if (redis) {
-    const args = Object.entries(fields).flatMap(([field, value]) => [field, String(value)]);
-    return await redis.eval<string[], number>(UPDATE_FIELDS, [key(token)], args) === 1;
+  const client = redis;
+  if (client) {
+    try {
+      const args = Object.entries(fields).flatMap(([field, value]) => [field, String(value)]);
+      const updated = await client.eval<string[], number>(UPDATE_FIELDS, [key(token)], args) === 1;
+      const local = sessions.get(token);
+      if (updated && local) Object.assign(local, fields);
+      return updated;
+    } catch (error) {
+      disableRedis(error);
+    }
   }
   const session = await current(token);
   if (!session) return false;
@@ -130,12 +152,18 @@ export async function createPaintSession() {
     updatedAt: now,
     expiresAt: now + SESSION_TTL,
   };
-  if (redis) {
-    await redis.pipeline()
-      .hset(key(token), session)
-      .expire(key(token), SESSION_TTL_SECONDS)
-      .exec();
-  } else sessions.set(token, session);
+  sessions.set(token, session);
+  const client = redis;
+  if (client) {
+    try {
+      await client.pipeline()
+        .hset(key(token), session)
+        .expire(key(token), SESSION_TTL_SECONDS)
+        .exec();
+    } catch (error) {
+      disableRedis(error);
+    }
+  }
   return { token, expiresAt: session.expiresAt };
 }
 
@@ -156,7 +184,8 @@ export async function updateCursor(
   token: string,
   cursor: { seq: number; x: number; y: number; tracking: TrackingState },
 ) {
-  if (redis) {
+  const client = redis;
+  if (client) {
     const args = [
       "latestSeq", String(cursor.seq),
       "latestX", String(cursor.x),
@@ -164,7 +193,20 @@ export async function updateCursor(
       "tracking", cursor.tracking,
       "updatedAt", String(Date.now()),
     ];
-    return await redis.eval<string[], number>(UPDATE_CURSOR, [key(token)], args) === 1;
+    try {
+      const updated = await client.eval<string[], number>(UPDATE_CURSOR, [key(token)], args) === 1;
+      const local = sessions.get(token);
+      if (updated && local && cursor.seq >= local.latestSeq) {
+        local.latestSeq = cursor.seq;
+        local.latestX = cursor.x;
+        local.latestY = cursor.y;
+        local.tracking = cursor.tracking;
+        local.updatedAt = Date.now();
+      }
+      return updated;
+    } catch (error) {
+      disableRedis(error);
+    }
   }
   const session = await current(token);
   if (!session) return false;

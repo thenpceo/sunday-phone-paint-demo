@@ -166,7 +166,9 @@ test("production sessions use shared Redis with a local fallback", async () => {
   assert.match(store, /process\.env\.UPSTASH_REDIS_REST_TOKEN \?\? process\.env\.KV_REST_API_TOKEN/);
   assert.match(store, /process\.env\.KV_REST_API_URL/);
   assert.match(store, /__phonePaintSessions/);
-  assert.match(store, /redis\.pipeline\(\)/);
+  assert.match(store, /client\.pipeline\(\)/);
   assert.match(store, /UPDATE_CURSOR/);
+  assert.match(store, /disableRedis\(error\)/);
+  assert.match(store, /sessions\.set\(token, session\)/);
   assert.match(sessionRoute, /await createPaintSession\(\)/);
 });
