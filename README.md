@@ -13,7 +13,7 @@ An unofficial creative-technology experiment that turns a phone into a physical 
 
 - The webpage itself is the tracking target—there are no large fiducial markers.
 - The phone's physical position becomes a normalized brush coordinate on the desktop.
-- Phone coordinates travel over a direct encrypted WebRTC data channel, avoiding a database round trip while painting.
+- Phone coordinates prefer a direct encrypted WebRTC data channel and automatically switch to the shared session relay when a network blocks peer-to-peer traffic.
 - The reveal is built from irregular, rotated spray stamps rather than a soft circular eraser.
 - The phone plays a one-shot can rattle, then a gapless spray loop for the active paint pass.
 - Cross-device cursor updates are reduced to the latest position and interpolated at display rate for smoother motion.
@@ -27,12 +27,17 @@ An unofficial creative-technology experiment that turns a phone into a physical 
 sequenceDiagram
   participant D as Desktop
   participant S as PeerJS signaling
+  participant R as Shared relay
   participant P as Phone
 
   D->>S: Register an ephemeral 128-bit peer ID
   D->>D: Render a capability URL in the QR sticker
   P->>S: Find the desktop after QR scan
   S-->>D: Negotiate a WebRTC data channel
+  alt Direct connection is blocked
+    P->>R: Join fallback session automatically
+    R-->>D: Relay latest coordinates
+  end
   P->>P: Match camera features to the page artwork
   P-->>D: Stream latest normalized x/y directly
   D->>D: Interpolate motion and erase spray mask
@@ -51,7 +56,7 @@ The desktop keeps the starting artwork on a high-resolution canvas above the hid
 
 ### Smooth cross-device motion
 
-The phone never queues a backlog of vision results. It sends only the newest available position over a WebRTC data channel, and the desktop interpolates toward that target on every animation frame. PeerJS Cloud brokers the initial connection; once connected, paint packets travel directly between the browsers. The older short-lived Redis session route remains as a compatibility fallback, but the primary experience does not depend on Upstash.
+The phone never queues a backlog of vision results. It sends only the newest available position, and the desktop interpolates toward that target on every animation frame. PeerJS Cloud first attempts a direct data channel. Every QR also contains a short-lived shared session; if the data channel has not opened after 4.5 seconds, the phone joins that session automatically and painting continues through the server relay.
 
 ### Phone-side sound
 
@@ -78,18 +83,18 @@ Open [http://localhost:3000](http://localhost:3000). A phone camera requires a s
 PHONE_PAINT_PUBLIC_ORIGIN=https://your-secure-origin.example npm run dev
 ```
 
-No database is required for the primary WebRTC path. Without Redis credentials, the optional compatibility route automatically uses an in-memory session store.
+No database is required for local or unrestricted WebRTC use. A shared Redis-compatible store makes the automatic fallback work across Vercel instances and restrictive phone networks; without credentials, local development uses an in-memory session store.
 
 ## Deploy to Vercel
 
 1. Import this GitHub repository into Vercel as a Next.js project.
 2. Deploy. The browser derives the phone URL from the live origin, so the QR automatically targets the Vercel deployment.
-3. Optional: add Upstash Redis credentials only if you want the legacy server-session fallback (`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`; `KV_REST_API_*` aliases are also supported).
+3. Add Upstash Redis credentials for reliable automatic fallback on networks that block WebRTC (`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`; `KV_REST_API_*` aliases are also supported).
 
 Every push to `main` is deployed automatically through the connected Vercel project.
 The project is configured with Vercel’s Next.js framework preset and deployed in `iad1`.
 
-The live paint path is independent of the optional Redis integration, so a Marketplace credential issue cannot prevent QR pairing or camera tracking.
+Direct painting remains independent of Redis. When peer-to-peer traffic is blocked, the shared session relay keeps QR pairing and painting functional.
 
 ## Verification
 

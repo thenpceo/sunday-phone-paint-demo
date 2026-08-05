@@ -42,8 +42,29 @@ export default function PhoneExperience() {
       let active = true;
       let connection: PeerConnection | null = null;
       let peer: PeerClient | null = null;
+      let usingFallback = false;
+      let timeout: number | null = null;
+      const activateFallback = () => {
+        if (!active || usingFallback) return;
+        if (!/^[a-f0-9]{32}$/.test(legacyToken)) {
+          setSessionState("expired");
+          return;
+        }
+        usingFallback = true;
+        if (timeout !== null) window.clearTimeout(timeout);
+        connection?.close();
+        peer?.destroy();
+        peerConnectionRef.current = null;
+        peerRef.current = null;
+        setSessionState("joining");
+        setTransport("session");
+        setToken(legacyToken);
+        void updateSession(legacyToken, { type: "join" })
+          .then(() => { if (active) setSessionState("ready"); })
+          .catch(() => { if (active) setSessionState("expired"); });
+      };
       queueMicrotask(() => { if (active) setToken(queryToken); });
-      const timeout = window.setTimeout(() => { if (active) setSessionState("expired"); }, 15_000);
+      timeout = window.setTimeout(activateFallback, 4_500);
       void import("peerjs").then(({ default: Peer }) => {
         if (!active) return;
         peer = new Peer({ debug: 0 });
@@ -58,8 +79,8 @@ export default function PhoneExperience() {
           });
           peerConnectionRef.current = connection;
           connection.on("open", () => {
-            if (!active) return;
-            window.clearTimeout(timeout);
+            if (!active || usingFallback) return;
+            if (timeout !== null) window.clearTimeout(timeout);
             setSessionState("ready");
           });
           connection.on("data", (value) => {
@@ -67,15 +88,15 @@ export default function PhoneExperience() {
             if (active && packet.type === "complete") setCompleted(true);
           });
           connection.on("close", () => {
-            if (active) setSessionState("expired");
+            if (active && !usingFallback) activateFallback();
           });
-          connection.on("error", () => { if (active) setSessionState("expired"); });
+          connection.on("error", activateFallback);
         });
-        peer.on("error", () => { if (active) setSessionState("expired"); });
-      }).catch(() => { if (active) setSessionState("expired"); });
+        peer.on("error", activateFallback);
+      }).catch(activateFallback);
       return () => {
         active = false;
-        window.clearTimeout(timeout);
+        if (timeout !== null) window.clearTimeout(timeout);
         connection?.close();
         peer?.destroy();
         peerConnectionRef.current = null;

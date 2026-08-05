@@ -144,6 +144,21 @@ test("the primary cross-device path is a direct WebRTC data channel", async () =
   assert.match(phone, /reliable: false/);
 });
 
+test("blocked WebRTC falls back to the shared server session", async () => {
+  const [desktop, phone] = await Promise.all([
+    read("app/DesktopExperience.tsx"),
+    read("app/PhoneExperience.tsx"),
+  ]);
+  assert.match(desktop, /fetch\("\/api\/session", \{ method: "POST" \}\)/);
+  assert.match(desktop, /sessionToken: fallback\?\.token/);
+  assert.match(desktop, /&session=\$\{fallback\.token\}/);
+  assert.match(desktop, /const fallbackToken = created\?\.sessionToken/);
+  assert.match(phone, /window\.setTimeout\(activateFallback, 4_500\)/);
+  assert.match(phone, /setTransport\("session"\)/);
+  assert.match(phone, /updateSession\(legacyToken, \{ type: "join" \}\)/);
+  assert.doesNotMatch(phone, /setTimeout\([^\n]+setSessionState\("expired"\)[^\n]+15_000/);
+});
+
 test("phone uses the supplied full-screen spray artwork with one instruction", async () => {
   const [phone, css] = await Promise.all([read("app/PhoneExperience.tsx"), read("app/globals.css")]);
   assert.match(phone, /POINT AT YOUR SCREEN TO PAINT/);

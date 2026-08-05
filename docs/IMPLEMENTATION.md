@@ -4,11 +4,11 @@ This document explains the main technical decisions behind the Sunday Memo phone
 
 ## 1. Pairing the displays
 
-The desktop creates an ephemeral 128-bit capability token in the browser, registers a matching PeerJS ID, and converts the resulting phone URL into the custom QR sticker using the `qrcode` package. The phone uses that unguessable ID and token to negotiate a WebRTC data channel back to the desktop.
+The desktop creates an ephemeral 128-bit capability token in the browser, registers a matching PeerJS ID, and creates a short-lived shared fallback session. Both capabilities are encoded into the custom QR sticker using the `qrcode` package. The phone first uses the unguessable peer ID and token to negotiate a WebRTC data channel back to the desktop.
 
-PeerJS Cloud handles signaling only. After negotiation, cursor packets travel directly between the two browsers over WebRTC's encrypted data channel. This removes the server/database round trip from the hot path and makes the spray response substantially closer to camera-frame time.
+PeerJS Cloud handles signaling only. After negotiation, cursor packets travel directly between the two browsers over WebRTC's encrypted data channel. This removes the server/database round trip from the hot path and makes the spray response substantially closer to camera-frame time. If the data channel does not open within 4.5 seconds, the phone automatically joins the shared session from the same QR and sends latest-only coordinates through the API instead.
 
-The QR URL is generated from `window.location.origin`, so a Vercel visit points the phone to the public deployment and a local visit points it to the local server. A short-lived Redis-backed route remains in the repository as a compatibility fallback when a browser cannot initialize PeerJS, but Redis is not required for the primary interaction.
+The QR URL is generated from `window.location.origin`, so a Vercel visit points the phone to the public deployment and a local visit points it to the local server. The desktop polls the shared session even while the direct channel is available, allowing the phone to switch transports without another scan. Redis is not required for the direct path, but a shared store is required for reliable fallback across serverless instances.
 
 ## 2. Using the artwork as the marker
 
@@ -77,15 +77,15 @@ The canvas is dynamically imported only after the paint reveal completes, keepin
 - Compressed GLB assets instead of the original large exports
 - Capped renderer and paint-canvas pixel ratios
 - Cached spray textures
-- Direct latest-position-only WebRTC transport
+- Direct latest-position-only WebRTC transport with automatic shared-session fallback
 - Display-rate desktop interpolation
 - Dynamically loaded Three.js customizer
-- Optional short-lived Redis compatibility route with explicit no-store response headers
+- Short-lived Redis fallback route with explicit no-store response headers
 
 ## 9. Known constraints
 
 - Markerless tracking depends on visible image detail, camera focus, screen glare, and ambient light.
-- The phone and laptop both need internet access for PeerJS signaling. Especially restrictive or symmetric-NAT networks can prevent a direct WebRTC connection when no TURN relay is configured.
+- The phone and laptop both need internet access. Restrictive or symmetric-NAT networks can prevent a direct WebRTC connection, in which case the app automatically uses the shared session relay.
 - iOS camera permission requires the secure deployed URL and an explicit user gesture when the browser requires one.
 
 ## Disclaimer

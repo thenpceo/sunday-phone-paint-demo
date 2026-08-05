@@ -21,6 +21,7 @@ const CustomizationExperience = dynamic(
 type CreatedSession = {
   transport: "peer" | "session";
   token: string;
+  sessionToken?: string;
   expiresAt?: number;
   phoneUrl: string;
 };
@@ -54,7 +55,7 @@ export default function DesktopExperience() {
   const peerRef = useRef<PeerClient | null>(null);
   const peerConnectionRef = useRef<PeerConnection | null>(null);
   const createGenerationRef = useRef(0);
-  const sessionToken = created?.transport === "session" ? created.token : "";
+  const sessionToken = created?.sessionToken ?? (created?.transport === "session" ? created.token : "");
 
   const fillCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -144,6 +145,14 @@ export default function DesktopExperience() {
     peerRef.current?.destroy();
     peerRef.current = null;
     resetPaint();
+    let fallback: Omit<CreatedSession, "transport" | "sessionToken"> | null = null;
+    try {
+      const response = await fetch("/api/session", { method: "POST" });
+      if (!response.ok) throw new Error("SESSION_CREATE_FAILED");
+      fallback = (await response.json()) as Omit<CreatedSession, "transport" | "sessionToken">;
+    } catch (sessionError) {
+      console.warn("phone-paint:fallback unavailable", sessionError);
+    }
     try {
       const token = randomToken();
       const peerId = `sunday-paint-${token}`;
@@ -194,7 +203,8 @@ export default function DesktopExperience() {
       const session: CreatedSession = {
         transport: "peer",
         token,
-        phoneUrl: `${window.location.origin}/phone?peer=${encodeURIComponent(peerId)}&token=${token}`,
+        sessionToken: fallback?.token,
+        phoneUrl: `${window.location.origin}/phone?peer=${encodeURIComponent(peerId)}&token=${token}${fallback ? `&session=${fallback.token}` : ""}`,
       };
       const code = await QRCode.toDataURL(session.phoneUrl, {
         width: 280, margin: 1, color: { dark: "#1a1a1a", light: "#ffffff" },
@@ -207,11 +217,11 @@ export default function DesktopExperience() {
       peerRef.current?.destroy();
       peerRef.current = null;
       try {
-        // A short-lived server session remains as a compatibility fallback for
-        // networks or browsers that cannot establish a WebRTC data channel.
-        const response = await fetch("/api/session", { method: "POST" });
-        if (!response.ok) throw new Error("SESSION_CREATE_FAILED");
-        const fallback = (await response.json()) as Omit<CreatedSession, "transport">;
+        if (!fallback) {
+          const response = await fetch("/api/session", { method: "POST" });
+          if (!response.ok) throw new Error("SESSION_CREATE_FAILED");
+          fallback = (await response.json()) as Omit<CreatedSession, "transport" | "sessionToken">;
+        }
         if (generation !== createGenerationRef.current) return;
         const session: CreatedSession = { ...fallback, transport: "session" };
         const code = await QRCode.toDataURL(session.phoneUrl, {
@@ -343,15 +353,18 @@ export default function DesktopExperience() {
   }, [completed, paintPoint]);
 
   useEffect(() => {
-    if (created?.transport !== "session" || !created.token || completed) return;
+    const fallbackToken = created?.sessionToken ?? (created?.transport === "session" ? created.token : "");
+    if (!fallbackToken || completed) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     let failures = 0;
+    let fallbackActive = false;
     const poll = async () => {
       try {
-        const { session } = await readSession(created.token);
+        const { session } = await readSession(fallbackToken);
         if (!active) return;
         failures = 0;
+        fallbackActive = session.phoneConnected;
         if (session.latestSeq > lastSeqRef.current && session.latestX !== null && session.latestY !== null && (session.tracking === "found" || session.tracking === "manual")) {
           lastSeqRef.current = session.latestSeq;
           const mapped = referenceToStage(session.latestX, session.latestY, stageRef.current);
@@ -364,7 +377,7 @@ export default function DesktopExperience() {
       } catch (pollError) {
         failures += 1;
         if (failures >= 3 && active) console.error("phone-paint:session", pollError);
-      } finally { if (active) timer = setTimeout(poll, 40); }
+      } finally { if (active) timer = setTimeout(poll, fallbackActive ? 40 : 600); }
     };
     void poll();
     return () => { active = false; clearTimeout(timer); };
