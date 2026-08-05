@@ -82,6 +82,7 @@ Without Redis credentials, local development automatically uses an in-memory ses
 4. Deploy. The QR API derives its public phone URL from the incoming Vercel request, so no production origin override is required.
 
 Every push to `main` is deployed automatically through the connected Vercel project.
+The project is configured with Vercel’s Next.js framework preset and deployed in `iad1`.
 
 ## Verification
 
