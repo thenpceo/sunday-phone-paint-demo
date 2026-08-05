@@ -107,8 +107,10 @@ test("phone tracker recognizes both artwork versions with a homography", async (
 test("phone sends latest tracking position without blocking vision", async () => {
   const phone = await read("app/PhoneExperience.tsx");
   assert.match(phone, /const FRAME_INTERVAL = 16/);
+  assert.match(phone, /const MAX_SESSION_REQUESTS = 2/);
   assert.match(phone, /let pending:/);
-  assert.match(phone, /requestInFlight/);
+  assert.match(phone, /sessionRequestsInFlight >= MAX_SESSION_REQUESTS/);
+  assert.match(phone, /pending\.type === "tracking" && sessionRequestsInFlight > 0/);
   assert.match(phone, /peerConnectionRef\.current\?\.open/);
   assert.match(phone, /peerConnectionRef\.current\.send\(payload\)/);
 });
@@ -153,6 +155,9 @@ test("blocked WebRTC falls back to the shared server session", async () => {
   assert.match(desktop, /sessionToken: fallback\?\.token/);
   assert.match(desktop, /&session=\$\{fallback\.token\}/);
   assert.match(desktop, /const fallbackToken = created\?\.sessionToken/);
+  assert.match(desktop, /readsInFlight >= 2/);
+  assert.match(desktop, /session\.tracking === "lost" && session\.latestSeq >= lastSeqRef\.current/);
+  assert.match(desktop, /setInterval\(tick, 24\)/);
   assert.match(phone, /window\.setTimeout\(activateFallback, 4_500\)/);
   assert.match(phone, /setTransport\("session"\)/);
   assert.match(phone, /updateSession\(legacyToken, \{ type: "join" \}\)/);

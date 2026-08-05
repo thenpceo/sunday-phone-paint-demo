@@ -27,7 +27,7 @@ The two-reference approach lets tracking continue as the original page disappear
 
 ## 3. Keeping the paint responsive
 
-Computer vision and transport operate at different speeds. Queuing every camera result produces stale motion, so the phone keeps one pending coordinate and replaces it whenever a newer frame finishes. WebRTC packets are intentionally unreliable: a fresh cursor is more valuable than retransmitting an old one.
+Computer vision and transport operate at different speeds. Queuing every camera result produces stale motion, so the phone keeps one pending coordinate and replaces it whenever a newer frame finishes. WebRTC packets are intentionally unreliable: a fresh cursor is more valuable than retransmitting an old one. The server fallback permits two cursor writes and two reads in flight at once; sequence checks discard any older response that finishes late.
 
 The desktop receives packets as events, then eases its visual brush toward the latest target at display rate. Large jumps receive a stronger blend; nearby points use gentler interpolation. This makes modest network jitter feel continuous without adding a long smoothing delay.
 

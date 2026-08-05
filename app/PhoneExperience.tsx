@@ -11,6 +11,7 @@ type Transport = "peer" | "session";
 type PeerClient = import("peerjs").default;
 type PeerConnection = import("peerjs").DataConnection;
 const FRAME_INTERVAL = 16;
+const MAX_SESSION_REQUESTS = 2;
 
 export default function PhoneExperience() {
   const [token, setToken] = useState("");
@@ -142,27 +143,26 @@ export default function PhoneExperience() {
     let lastFoundAt = 0;
     let reportedLost = false;
     let smoothed: { x: number; y: number } | null = null;
-    let requestInFlight = false;
+    let sessionRequestsInFlight = 0;
     let pending:
       | { type: "cursor"; x: number; y: number; tracking: "found" }
       | { type: "tracking"; tracking: "lost" }
       | null = null;
 
     const flush = () => {
-      if (!active || requestInFlight || !pending) return;
+      if (!active || !pending) return;
+      if (transport === "session" && sessionRequestsInFlight >= MAX_SESSION_REQUESTS) return;
+      if (transport === "session" && pending.type === "tracking" && sessionRequestsInFlight > 0) return;
       const update = pending;
       pending = null;
-      requestInFlight = true;
       const payload = update.type === "cursor" ? { ...update, seq: sequence++ } : update;
       if (transport === "peer") {
-        try { if (peerConnectionRef.current?.open) peerConnectionRef.current.send(payload); }
-        finally {
-          requestInFlight = false;
-          if (pending) timer = window.setTimeout(flush, FRAME_INTERVAL);
-        }
+        if (peerConnectionRef.current?.open) peerConnectionRef.current.send(payload);
+        if (pending) timer = window.setTimeout(flush, FRAME_INTERVAL);
       } else {
+        sessionRequestsInFlight += 1;
         void updateSession(token, payload).catch(() => undefined).finally(() => {
-          requestInFlight = false;
+          sessionRequestsInFlight -= 1;
           flush();
         });
       }

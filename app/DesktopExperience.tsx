@@ -356,10 +356,13 @@ export default function DesktopExperience() {
     const fallbackToken = created?.sessionToken ?? (created?.transport === "session" ? created.token : "");
     if (!fallbackToken || completed) return;
     let active = true;
-    let timer: ReturnType<typeof setTimeout>;
     let failures = 0;
     let fallbackActive = false;
+    let readsInFlight = 0;
+    let nextStandbyRead = 0;
     const poll = async () => {
+      if (!active || readsInFlight >= 2) return;
+      readsInFlight += 1;
       try {
         const { session } = await readSession(fallbackToken);
         if (!active) return;
@@ -368,8 +371,8 @@ export default function DesktopExperience() {
         if (session.latestSeq > lastSeqRef.current && session.latestX !== null && session.latestY !== null && (session.tracking === "found" || session.tracking === "manual")) {
           lastSeqRef.current = session.latestSeq;
           const mapped = referenceToStage(session.latestX, session.latestY, stageRef.current);
-          if (mapped) remoteTargetRef.current = { ...mapped, at: session.updatedAt };
-        } else if (session.tracking === "lost") {
+          if (mapped) remoteTargetRef.current = { ...mapped, at: Date.now() };
+        } else if (session.tracking === "lost" && session.latestSeq >= lastSeqRef.current) {
           remoteTargetRef.current = null;
           remoteVisualRef.current = null;
           lastPointRef.current = null;
@@ -377,10 +380,17 @@ export default function DesktopExperience() {
       } catch (pollError) {
         failures += 1;
         if (failures >= 3 && active) console.error("phone-paint:session", pollError);
-      } finally { if (active) timer = setTimeout(poll, fallbackActive ? 40 : 600); }
+      } finally { readsInFlight -= 1; }
     };
-    void poll();
-    return () => { active = false; clearTimeout(timer); };
+    const tick = () => {
+      const now = performance.now();
+      if (!fallbackActive && now < nextStandbyRead) return;
+      if (!fallbackActive) nextStandbyRead = now + 600;
+      void poll();
+    };
+    tick();
+    const timer = window.setInterval(tick, 24);
+    return () => { active = false; window.clearInterval(timer); };
   }, [created, completed]);
 
   return (

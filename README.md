@@ -56,7 +56,7 @@ The desktop keeps the starting artwork on a high-resolution canvas above the hid
 
 ### Smooth cross-device motion
 
-The phone never queues a backlog of vision results. It sends only the newest available position, and the desktop interpolates toward that target on every animation frame. PeerJS Cloud first attempts a direct data channel. Every QR also contains a short-lived shared session; if the data channel has not opened after 4.5 seconds, the phone joins that session automatically and painting continues through the server relay.
+The phone never queues a backlog of vision results. It sends only the newest available position, and the desktop interpolates toward that target on every animation frame. PeerJS Cloud first attempts a direct data channel. Every QR also contains a short-lived shared session; if the data channel has not opened after 4.5 seconds, the phone joins that session automatically. The fallback keeps two latest-only reads and writes in flight, increasing update cadence without building a stale coordinate queue.
 
 ### Phone-side sound
 
